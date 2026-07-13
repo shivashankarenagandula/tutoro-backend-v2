@@ -1,17 +1,17 @@
-
 """
-Creates (or leaves alone) an admin superuser from environment variables.
+Creates the admin superuser from environment variables, OR — if it
+already exists — resets its password to match ADMIN_PASSWORD.
 
-Why this exists: Render's free tier has no Shell/SSH access, so the
-normal `python manage.py createsuperuser` interactive prompt is
-unreachable without upgrading to a paid plan. This command reads the
-same information from env vars instead, and — critically — is
-idempotent: safe to run on every single deploy, since it checks for
-an existing user first rather than erroring out on the second run.
+Why "sync" instead of just "create once": Render's free tier has no
+Shell/SSH access, so if you ever forget the password or change
+ADMIN_PASSWORD in the dashboard, there's no way to run
+`changepassword` manually. Making this command sync on every deploy
+means changing the env var and redeploying is always enough to fix
+login -- the env var is the single source of truth, every time.
 
 Usage: set ADMIN_EMAIL, ADMIN_PHONE, ADMIN_PASSWORD in Render's
-Environment tab, then this runs automatically via the Procfile/
-render.yaml release command on every deploy.
+Environment tab. Runs automatically via the Procfile/render.yaml
+release command on every deploy.
 """
 
 import os
@@ -22,7 +22,7 @@ from apps.accounts.models import User
 
 
 class Command(BaseCommand):
-    help = "Create the admin superuser from ADMIN_EMAIL/ADMIN_PHONE/ADMIN_PASSWORD env vars, if it doesn't already exist."
+    help = "Create or sync the admin superuser from ADMIN_EMAIL/ADMIN_PHONE/ADMIN_PASSWORD env vars."
 
     def handle(self, *args, **options):
         email = os.environ.get("ADMIN_EMAIL")
@@ -35,9 +35,22 @@ class Command(BaseCommand):
             ))
             return
 
-        if User.objects.filter(email__iexact=email).exists():
-            self.stdout.write(self.style.SUCCESS(f"Admin '{email}' already exists -- nothing to do."))
-            return
+        user, created = User.objects.get_or_create(
+            email__iexact=email,
+            defaults={"email": email, "phone_number": phone, "role": User.Role.ADMIN},
+        )
 
-        User.objects.create_superuser(email=email, phone_number=phone, password=password)
-        self.stdout.write(self.style.SUCCESS(f"Admin '{email}' created."))
+        # Always sync these, whether just-created or pre-existing --
+        # this is what makes a Render env var change actually take effect.
+        user.email = email
+        user.phone_number = phone
+        user.is_staff = True
+        user.is_superuser = True
+        user.role = User.Role.ADMIN
+        user.set_password(password)
+        user.save()
+
+        if created:
+            self.stdout.write(self.style.SUCCESS(f"Admin '{email}' created."))
+        else:
+            self.stdout.write(self.style.SUCCESS(f"Admin '{email}' already existed -- password/role synced."))
