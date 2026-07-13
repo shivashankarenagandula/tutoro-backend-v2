@@ -11,24 +11,28 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
-import os
+
+import environ
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+env = environ.Env(DEBUG=(bool, True))
+environ.Env.read_env(BASE_DIR / '.env')  # no-op if .env doesn't exist -- fine for local sqlite dev
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-k&62lru*(1l*!f=g*y)c&bwmcg=mf=jqu6^iki0v@9!jzrg@0*'
+# Falls back to the dev key only when DJANGO_SECRET_KEY isn't set in the
+# environment -- Render's render.yaml auto-generates a real one at deploy time.
+SECRET_KEY = env('DJANGO_SECRET_KEY', default='django-insecure-k&62lru*(1l*!f=g*y)c&bwmcg=mf=jqu6^iki0v@9!jzrg@0*')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DEBUG", "False") == "True"
+DEBUG = env.bool('DEBUG', default=True)
 
-ALLOWED_HOSTS = os.getenv(
-    "ALLOWED_HOSTS",
-    "localhost,127.0.0.1,.onrender.com"
-).split(",")
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1', 'testserver'])
 
 
 # Application definition
@@ -43,6 +47,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'corsheaders',
     'apps.accounts',
     'apps.profiles',
     'apps.catalog',
@@ -51,10 +56,13 @@ INSTALLED_APPS = [
     'apps.payments',
     'apps.notifications',
     'apps.audit',
+    'apps.leads',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -62,6 +70,12 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# Which frontend origins are allowed to call this API from the browser.
+# Set to your GitHub Pages URL (e.g. https://yourusername.github.io) in
+# Render's environment variables -- kept empty by default so nothing is
+# accidentally left wide open.
+CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[])
 
 ROOT_URLCONF = 'config.urls'
 
@@ -86,11 +100,15 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+# Database
+# https://docs.djangoproject.com/en/6.0/ref/settings/#databases
+#
+# Local dev (no .env, no DATABASE_URL set): falls back to SQLite automatically.
+# Production (Render): DATABASE_URL is set to your Aiven Postgres connection
+# string, and env.db() parses it into the dict Django expects.
+
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': env.db('DATABASE_URL', default=f'sqlite:///{BASE_DIR / "db.sqlite3"}')
 }
 
 
@@ -129,8 +147,26 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STORAGES = {
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# -----------------------------------------------------------------
+# PRODUCTION SECURITY HEADERS -- only active when DEBUG=False (Render),
+# never interferes with local development.
+# -----------------------------------------------------------------
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = 'DENY'
 
 # -----------------------------------------------------------------
 # TUTORO API CONFIG
@@ -144,6 +180,9 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    'DEFAULT_THROTTLE_RATES': {
+        'lead_submit': '10/hour',
+    },
 }
 
 from datetime import timedelta  # noqa: E402
