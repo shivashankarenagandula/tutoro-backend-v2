@@ -32,20 +32,16 @@ SECRET_KEY = env('DJANGO_SECRET_KEY', default='django-insecure-k&62lru*(1l*!f=g*
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env.bool('DEBUG', default=True)
 
-ALLOWED_HOSTS = env.list(
-    'ALLOWED_HOSTS',
-    default=['localhost', '127.0.0.1', 'testserver']
-)
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1', 'testserver'])
 
-# Required so Django's CSRF check accepts POSTs (like admin login) coming
-# in over your Render domain.
-CSRF_TRUSTED_ORIGINS = env.list(
-    'CSRF_TRUSTED_ORIGINS',
-    default=['https://tutoro-backend-zz25.onrender.com']
-)
-
-# Tell Django to trust Render's proxy header when deciding if a request is HTTPS.
+# Render (and most PaaS hosts) terminate HTTPS at their proxy and forward
+# to your app over plain HTTP internally. Without this, Django doesn't
+# know the original request was secure, which breaks CSRF validation on
+# forms like the admin login -- this is what causes "CSRF verification
+# failed" even though the site is genuinely running over HTTPS.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=['https://*.onrender.com'])
 
 
 # Application definition
@@ -53,6 +49,7 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 AUTH_USER_MODEL = 'accounts.User'
 
 INSTALLED_APPS = [
+    'jazzmin',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -112,6 +109,9 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
+
+# Database
+# https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 #
 # Local dev (no .env, no DATABASE_URL set): falls back to SQLite automatically.
 # Production (Render): DATABASE_URL is set to your Aiven Postgres connection
@@ -163,6 +163,11 @@ STORAGES = {
         'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
     },
 }
+# Don't hard-crash the whole page with a 500 if one static file reference
+# doesn't perfectly match the manifest (can happen after a partial
+# rebuild or timing quirk between build and deploy on Render) -- fall
+# back to serving it unhashed instead of raising.
+WHITENOISE_MANIFEST_STRICT = False
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -174,13 +179,35 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-
-    SESSION_COOKIE_SAMESITE = "Lax"
-    CSRF_COOKIE_SAMESITE = "Lax"
-
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'DENY'
+
+# Without this, Django's default logging only mails 500-error tracebacks
+# to ADMINS (which we haven't configured) when DEBUG=False -- meaning
+# every server error becomes genuinely invisible in Render's logs, not
+# just hidden from the browser. This makes tracebacks print to console
+# (which Render captures) so real errors are actually diagnosable.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'WARNING',
+    },
+    'loggers': {
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+    },
+}
 
 # -----------------------------------------------------------------
 # TUTORO API CONFIG
@@ -196,6 +223,7 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 20,
     'DEFAULT_THROTTLE_RATES': {
         'lead_submit': '10/hour',
+        'status_check': '20/hour',
     },
 }
 
@@ -204,4 +232,70 @@ from datetime import timedelta  # noqa: E402
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+}
+
+# -----------------------------------------------------------------
+# EMAIL -- instant notification when a new lead comes in.
+# Uses Gmail SMTP by default since it's genuinely free (an "app
+# password" from your own Gmail account, not a paid service).
+# If EMAIL_HOST_USER isn't set, notifications are silently skipped
+# rather than breaking lead submission -- getting a lead saved always
+# matters more than the notification about it.
+# -----------------------------------------------------------------
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = env('EMAIL_HOST', default='smtp.gmail.com')
+EMAIL_PORT = env.int('EMAIL_PORT', default=587)
+EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=True)
+EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default=EMAIL_HOST_USER)
+ADMIN_NOTIFICATION_EMAIL = env('ADMIN_NOTIFICATION_EMAIL', default=EMAIL_HOST_USER)
+
+# -----------------------------------------------------------------
+# JAZZMIN ADMIN THEME
+# -----------------------------------------------------------------
+JAZZMIN_SETTINGS = {
+    "site_title": "Tutoro Admin",
+    "site_header": "Tutoro",
+    "site_brand": "Tutoro",
+    "welcome_sign": "Welcome to Tutoro Admin",
+    "copyright": "Tutoro",
+    "search_model": ["leads.ParentLead", "leads.TutorLead"],
+    "show_sidebar": True,
+    "navigation_expanded": True,
+    # Leads first -- this is what gets checked every single day.
+    "order_with_respect_to": [
+        "leads", "matching", "profiles", "accounts", "catalog",
+        "reviews", "payments", "notifications", "audit",
+    ],
+    "icons": {
+        "leads.ParentLead": "fas fa-child",
+        "leads.TutorLead": "fas fa-chalkboard-teacher",
+        "accounts.User": "fas fa-user-shield",
+        "profiles.ParentProfile": "fas fa-users",
+        "profiles.TutorProfile": "fas fa-graduation-cap",
+        "catalog.Area": "fas fa-map-marker-alt",
+        "catalog.Subject": "fas fa-book",
+        "matching.StudentRequest": "fas fa-clipboard-list",
+        "matching.Assignment": "fas fa-handshake",
+    },
+    "custom_css": None,
+}
+
+JAZZMIN_UI_TWEAKS = {
+    "theme": "flatly",
+    "navbar": "navbar-dark",
+    "brand_colour": "navbar-dark",
+    "accent": "accent-warning",
+    "sidebar": "sidebar-dark-primary",
+    "sidebar_nav_small_text": False,
+    "sidebar_disable_expand": False,
+    "button_classes": {
+        "primary": "btn-warning",
+        "secondary": "btn-secondary",
+        "info": "btn-info",
+        "warning": "btn-warning",
+        "danger": "btn-danger",
+        "success": "btn-success",
+    },
 }
