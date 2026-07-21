@@ -33,6 +33,8 @@ class ParentLead(models.Model):
 
     name = models.CharField(max_length=150)
     phone_number = models.CharField(max_length=15)
+    email = models.EmailField(max_length=254, blank=True)
+    
     area = models.CharField(max_length=100, help_text="Validated against active Area names at submission time.")
 
     student_class = models.CharField(max_length=50, blank=True)
@@ -56,6 +58,7 @@ class TutorLead(models.Model):
 
     name = models.CharField(max_length=150)
     phone_number = models.CharField(max_length=15)
+    email = models.EmailField(max_length=254, blank=True)
     area = models.CharField(max_length=100, help_text="Validated against active Area names at submission time.")
 
     subjects = models.CharField(max_length=255, blank=True)
