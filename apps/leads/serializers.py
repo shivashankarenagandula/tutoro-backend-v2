@@ -23,7 +23,7 @@ def _validate_area_name(value):
 class ParentLeadSerializer(serializers.ModelSerializer):
     class Meta:
         model = ParentLead
-        fields = ["id", "name", "phone_number", "area", "student_class", "subject", "preferred_timing"]
+        fields = ["id", "name", "phone_number", "email", "area", "student_class", "subject", "preferred_timing"]
         read_only_fields = ["id"]
 
     def validate_area(self, value):
@@ -33,7 +33,7 @@ class ParentLeadSerializer(serializers.ModelSerializer):
 class TutorLeadSerializer(serializers.ModelSerializer):
     class Meta:
         model = TutorLead
-        fields = ["id", "name", "phone_number", "area", "subjects", "classes", "experience", "expected_fee"]
+        fields = ["id", "name", "phone_number", "email", "area", "subjects", "classes", "experience", "expected_fee"]
         read_only_fields = ["id"]
 
     def validate_area(self, value):
