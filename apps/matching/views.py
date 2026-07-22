@@ -145,8 +145,12 @@ class RecentMatchByAreaView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        area_slug = request.query_params.get("area", "").strip()
-        area = Area.objects.filter(slug__iexact=area_slug, is_active=True).first() if area_slug else None
+        area_query = request.query_params.get("area", "").strip()
+        area = None
+        if area_query:
+            area = Area.objects.filter(
+                Q(slug__iexact=area_query) | Q(name__iexact=area_query), is_active=True
+            ).first()
 
         assignment = None
         if area:
@@ -185,7 +189,7 @@ class RecentMatchByAreaView(APIView):
 
         # No real match yet for this area (or no area/unknown slug) —
         # illustrative fallback so the card still renders sensibly.
-        area_name = area.name if area else "your area"
+        area_name = area.name if area else (area_query or "your area")
         return Response({
             "is_dummy": True,
             "student_display_name": "Ananya",
