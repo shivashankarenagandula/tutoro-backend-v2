@@ -42,7 +42,7 @@ class TutorProfileSerializer(serializers.ModelSerializer):
         fields = [
             "id", "full_name", "bio", "qualification", "experience_years",
             "subjects", "preferred_areas", "teaching_mode", "fee_type",
-            "expected_fee", "is_accepting_students", "verification_status",
+            "online_fee", "home_visit_fee", "is_accepting_students", "verification_status",
             "rating_avg", "total_reviews", "availability_slots", "created_at",
         ]
         # A tutor can edit their own bio/fee/availability, but NOT their
