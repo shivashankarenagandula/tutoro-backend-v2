@@ -18,7 +18,7 @@ import uuid
 from django.db import models
 
 from apps.accounts.models import User
-from apps.catalog.models import Area, Subject
+from apps.catalog.models import Academy, Area, StudentClass, Subject
 from apps.profiles.models import ParentProfile, TutorProfile
 
 
@@ -28,13 +28,11 @@ class StudentRequest(models.Model):
     A parent with two kids needing tutoring submits two StudentRequests.
     """
 
-    class StudentClass(models.TextChoices):
-        C1_5 = "C1_5", "Class 1–5"
-        C6_8 = "C6_8", "Class 6–8"
-        C9_10 = "C9_10", "Class 9–10"
-        C11_12 = "C11_12", "Class 11–12"
-        DEGREE = "DEGREE", "Degree"
-        COMPETITIVE = "COMPETITIVE", "Competitive Exam Prep"
+    # StudentClass moved to apps.catalog (shared with Academy.classes_offered
+    # so both sides of an AcademyReferral speak the same values) -- kept
+    # importable here as StudentRequest.StudentClass so existing callers
+    # (e.g. `StudentRequest.StudentClass.C1_5`) don't break.
+    StudentClass = StudentClass
 
     class Board(models.TextChoices):
         CBSE = "CBSE", "CBSE"
@@ -45,8 +43,9 @@ class StudentRequest(models.Model):
 
     class TeachingModePreference(models.TextChoices):
         ONLINE = "ONLINE", "Online"
-        OFFLINE = "OFFLINE", "Home visit"
-        BOTH = "BOTH", "Either"
+        HOME = "HOME", "Home visit"
+        ACADEMY = "ACADEMY", "Academy / coaching institute"
+        ANY = "ANY", "Any of the above"
 
     class Status(models.TextChoices):
         OPEN = "OPEN", "Open — awaiting match"
@@ -71,7 +70,7 @@ class StudentRequest(models.Model):
     teaching_mode_preference = models.CharField(
         max_length=10,
         choices=TeachingModePreference.choices,
-        default=TeachingModePreference.OFFLINE,
+        default=TeachingModePreference.HOME,
     )
     preferred_timing = models.CharField(max_length=150, blank=True)
 
@@ -80,6 +79,19 @@ class StudentRequest(models.Model):
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
     notes = models.TextField(blank=True)
+
+    # DPDP consent -- captured at submission time, not backfilled later.
+    # consent_version lets you tell which wording of the privacy notice
+    # someone actually agreed to if the policy text changes down the line.
+    consent_given = models.BooleanField(
+        default=False,
+        help_text="Parent consented to Tutoro processing this data per the DPDP Act.",
+    )
+    consent_given_at = models.DateTimeField(null=True, blank=True)
+    consent_version = models.CharField(
+        max_length=20, blank=True,
+        help_text="Which version of the privacy notice was shown when consent was given.",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -126,6 +138,12 @@ class Assignment(models.Model):
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PROPOSED)
 
+    # Set when the assignment is ONLINE (or BOTH and this particular
+    # match is running online) -- a recurring meeting link (Google Meet/
+    # Zoom) used across the ongoing classes for this match, distinct from
+    # DemoClass.video_class_link which is per individual demo session.
+    video_class_link = models.URLField(blank=True)
+
     started_at = models.DateTimeField(null=True, blank=True, help_text="When ongoing classes began.")
     ended_at = models.DateTimeField(null=True, blank=True)
     end_reason = models.CharField(max_length=255, blank=True)
@@ -165,6 +183,11 @@ class DemoClass(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=15, choices=Status.choices, default=Status.SCHEDULED)
 
+    # Per-session link, since a demo might reschedule onto a different
+    # call than the recurring one later used for ongoing classes
+    # (Assignment.video_class_link).
+    video_class_link = models.URLField(blank=True)
+
     feedback_from_parent = models.TextField(blank=True)
     feedback_from_tutor = models.TextField(blank=True)
 
@@ -176,3 +199,49 @@ class DemoClass(models.Model):
 
     def __str__(self):
         return f"Demo for {self.assignment} on {self.scheduled_at:%d %b %Y}"
+
+
+class AcademyReferral(models.Model):
+    """
+    The ACADEMY-mode counterpart to Assignment: links a StudentRequest to
+    an Academy instead of a TutorProfile. Kept as a separate model (not
+    a nullable academy FK bolted onto Assignment) because the two have
+    genuinely different lifecycles -- Assignment tracks demo classes and
+    ongoing tutor billing; a referral's job ends once the academy
+    confirms enrollment, so its status flow is intentionally simpler.
+    """
+
+    class Status(models.TextChoices):
+        REFERRED = "REFERRED", "Referred to academy"
+        CONTACTED = "CONTACTED", "Academy contacted the family"
+        ENROLLED = "ENROLLED", "Enrolled"
+        DECLINED = "DECLINED", "Declined / not proceeding"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    student_request = models.ForeignKey(
+        StudentRequest, on_delete=models.CASCADE, related_name="academy_referrals"
+    )
+    academy = models.ForeignKey(
+        Academy, on_delete=models.CASCADE, related_name="referrals"
+    )
+
+    # Same staff-mediation pattern as Assignment.matched_by -- Tutoro
+    # stays the record-of-truth for who made the referral.
+    referred_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name="academy_referrals_made"
+    )
+
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.REFERRED)
+    notes = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "matching_academy_referral"
+        unique_together = [("student_request", "academy")]
+        indexes = [models.Index(fields=["status"])]
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.student_request.student_name} -> {self.academy.name} ({self.status})"
