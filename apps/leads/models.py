@@ -20,6 +20,12 @@ import uuid
 
 from django.db import models
 
+# Bump this string whenever the privacy notice shown alongside the
+# consent checkbox changes materially -- consent_version on each lead
+# records which wording someone actually agreed to, per DPDP Act
+# requirements around informed consent.
+CURRENT_CONSENT_VERSION = "v1"
+
 
 class LeadStatus(models.TextChoices):
     NEW = "NEW", "New"
@@ -40,6 +46,14 @@ class ParentLead(models.Model):
     student_class = models.CharField(max_length=50, blank=True)
     subject = models.CharField(max_length=200, blank=True)
     preferred_timing = models.CharField(max_length=150, blank=True)
+
+    # DPDP consent, captured at the moment of submission on the public
+    # marketing-site form -- this is the earliest point personal data
+    # enters the system, so it's also the earliest point consent needs
+    # to exist.
+    consent_given = models.BooleanField(default=False)
+    consent_given_at = models.DateTimeField(null=True, blank=True)
+    consent_version = models.CharField(max_length=20, blank=True)
 
     status = models.CharField(max_length=10, choices=LeadStatus.choices, default=LeadStatus.NEW)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -65,6 +79,10 @@ class TutorLead(models.Model):
     classes = models.CharField(max_length=255, blank=True)
     experience = models.CharField(max_length=100, blank=True)
     expected_fee = models.CharField(max_length=100, blank=True)
+
+    consent_given = models.BooleanField(default=False)
+    consent_given_at = models.DateTimeField(null=True, blank=True)
+    consent_version = models.CharField(max_length=20, blank=True)
 
     status = models.CharField(max_length=10, choices=LeadStatus.choices, default=LeadStatus.NEW)
     created_at = models.DateTimeField(auto_now_add=True)
