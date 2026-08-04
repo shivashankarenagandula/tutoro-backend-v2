@@ -34,6 +34,22 @@ class LeadStatus(models.TextChoices):
     CLOSED = "CLOSED", "Closed / not proceeding"
 
 
+class LeadTeachingModePreference(models.TextChoices):
+    """
+    Deliberately a separate, local choices class rather than importing
+    apps.matching.StudentRequest.TeachingModePreference -- this app is
+    the decoupled public front door (see module docstring) and doesn't
+    otherwise depend on apps.matching at all. Codes are kept identical
+    (HOME/ONLINE/ACADEMY/ANY) so staff converting a lead into a real
+    StudentRequest can copy the value across directly.
+    """
+
+    ONLINE = "ONLINE", "Online"
+    HOME = "HOME", "Home visit"
+    ACADEMY = "ACADEMY", "Academy / coaching institute"
+    ANY = "ANY", "Any of the above"
+
+
 class ParentLead(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
@@ -46,6 +62,17 @@ class ParentLead(models.Model):
     student_class = models.CharField(max_length=50, blank=True)
     subject = models.CharField(max_length=200, blank=True)
     preferred_timing = models.CharField(max_length=150, blank=True)
+
+    # Captured from the marketing site's mode picker (Home/Online/
+    # Academy/Any) -- previously collected in the UI but silently
+    # dropped since this field didn't exist yet. Defaults to ANY so
+    # staff triaging in admin still see a sensible value for leads
+    # submitted before this field existed.
+    teaching_mode_preference = models.CharField(
+        max_length=10,
+        choices=LeadTeachingModePreference.choices,
+        default=LeadTeachingModePreference.ANY,
+    )
 
     # DPDP consent, captured at the moment of submission on the public
     # marketing-site form -- this is the earliest point personal data
