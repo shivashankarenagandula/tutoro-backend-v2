@@ -1,7 +1,7 @@
 from django.utils import timezone
 from rest_framework import serializers
 
-from apps.catalog.models import Subject
+from apps.catalog.models import Academy, Subject
 from apps.leads.models import CURRENT_CONSENT_VERSION
 from apps.profiles.models import TutorProfile
 
@@ -71,6 +71,21 @@ class TutorSuggestionSerializer(serializers.ModelSerializer):
 
     def get_same_area(self, obj):
         return obj.id in self.context.get("same_area_ids", set())
+
+
+class AcademySuggestionSerializer(serializers.ModelSerializer):
+    """
+    ACADEMY-mode counterpart to TutorSuggestionSerializer. Deliberately
+    a different shape (no rating_avg/fee fields a tutor has) since an
+    academy is a different kind of candidate, not a TutorProfile.
+    """
+
+    class Meta:
+        model = Academy
+        fields = [
+            "id", "name", "contact_person", "contact_phone", "contact_email",
+            "commission_percentage",
+        ]
 
 
 class AssignmentSerializer(serializers.ModelSerializer):
