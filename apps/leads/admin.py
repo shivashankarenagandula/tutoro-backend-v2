@@ -5,8 +5,8 @@ from .models import ParentLead, TutorLead
 
 @admin.register(ParentLead)
 class ParentLeadAdmin(admin.ModelAdmin):
-    list_display = ["name", "phone_number", "area", "subject", "status", "created_at"]
-    list_filter = ["status", "area"]
+    list_display = ["name", "phone_number", "area", "subject", "teaching_mode_preference", "status", "created_at"]
+    list_filter = ["status", "area", "teaching_mode_preference"]
     search_fields = ["name", "phone_number"]
     list_editable = ["status"]
 
