@@ -267,6 +267,13 @@ REST_FRAMEWORK = {
         # scopes above, and keyed by IP (see LoginThrottle) so one
         # attacker can't lock out other users sharing the endpoint.
         'login': '10/hour',
+        # OTP email verification (see apps.accounts.views) -- request
+        # is tighter since each hit sends a real email; verify is a
+        # touch looser since a genuine user might mistype a code once
+        # or twice, but still capped well below brute-forcing a
+        # 6-digit space.
+        'otp_request': '5/hour',
+        'otp_verify': '15/hour',
     },
 }
 
@@ -355,6 +362,7 @@ JAZZMIN_SETTINGS = {
         "catalog.Subject": "fas fa-book",
         "matching.StudentRequest": "fas fa-clipboard-list",
         "matching.Assignment": "fas fa-handshake",
+        "reviews.Review": "fas fa-star",
     },
     "custom_css": None,
 }
