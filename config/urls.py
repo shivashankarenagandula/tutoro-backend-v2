@@ -24,4 +24,5 @@ urlpatterns = [
     path("api/profiles/", include("apps.profiles.urls")), # parents/me, tutors/me, tutors/<id>/verify
     path("api/matching/", include("apps.matching.urls")), # requests, assignments, suggest-tutors
     path("api/leads/", include("apps.leads.urls")),        # parent/, tutor/ -- public, from the marketing site
+    path("api/reviews/", include("apps.reviews.urls")),    # list, submit, admin moderation queue
 ]
