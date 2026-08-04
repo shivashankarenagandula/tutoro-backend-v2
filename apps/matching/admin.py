@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Assignment, DemoClass, StudentRequest
+from .models import AcademyReferral, Assignment, DemoClass, StudentRequest
 
 
 @admin.register(StudentRequest)
@@ -22,3 +22,10 @@ class AssignmentAdmin(admin.ModelAdmin):
 class DemoClassAdmin(admin.ModelAdmin):
     list_display = ["assignment", "scheduled_at", "status"]
     list_filter = ["status"]
+
+
+@admin.register(AcademyReferral)
+class AcademyReferralAdmin(admin.ModelAdmin):
+    list_display = ["student_request", "academy", "status", "referred_by", "created_at"]
+    list_filter = ["status"]
+    autocomplete_fields = ["student_request", "academy", "referred_by"]
