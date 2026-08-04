@@ -1,6 +1,8 @@
+from django.utils import timezone
 from rest_framework import serializers
 
 from apps.catalog.models import Subject
+from apps.leads.models import CURRENT_CONSENT_VERSION
 from apps.profiles.models import TutorProfile
 
 from .models import Assignment, DemoClass, StudentRequest
@@ -17,7 +19,7 @@ class StudentRequestSerializer(serializers.ModelSerializer):
             "id", "parent", "parent_name", "student_name", "student_class", "board",
             "subjects", "area", "area_name", "teaching_mode_preference",
             "preferred_timing", "budget_min", "budget_max", "status", "notes",
-            "created_at",
+            "consent_given", "created_at",
         ]
         read_only_fields = ["id", "parent", "status", "created_at"]
 
@@ -33,11 +35,21 @@ class StudentRequestSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Select at least one subject.")
         return value
 
+    def validate_consent_given(self, value):
+        if not value:
+            raise serializers.ValidationError(
+                "Please agree to the privacy notice to submit this request."
+            )
+        return value
+
     def create(self, validated_data):
         subjects = validated_data.pop("subjects")
         # `parent` is never taken from client input — always the
         # logged-in user's own ParentProfile. See the view.
         validated_data["parent"] = self.context["request"].user.parent_profile
+        if validated_data.get("consent_given"):
+            validated_data["consent_given_at"] = timezone.now()
+            validated_data["consent_version"] = CURRENT_CONSENT_VERSION
         student_request = StudentRequest.objects.create(**validated_data)
         student_request.subjects.set(subjects)
         return student_request
@@ -54,7 +66,7 @@ class TutorSuggestionSerializer(serializers.ModelSerializer):
         model = TutorProfile
         fields = [
             "id", "full_name", "experience_years", "rating_avg", "total_reviews",
-            "fee_type", "expected_fee", "teaching_mode", "same_area",
+            "fee_type", "online_fee", "home_visit_fee", "teaching_mode", "same_area",
         ]
 
     def get_same_area(self, obj):
@@ -69,7 +81,8 @@ class AssignmentSerializer(serializers.ModelSerializer):
         model = Assignment
         fields = [
             "id", "student_request", "student_name", "tutor", "tutor_name",
-            "matched_by", "status", "started_at", "ended_at", "end_reason", "created_at",
+            "matched_by", "status", "video_class_link", "started_at", "ended_at",
+            "end_reason", "created_at",
         ]
         read_only_fields = ["id", "matched_by", "created_at"]
 
@@ -87,6 +100,6 @@ class DemoClassSerializer(serializers.ModelSerializer):
         model = DemoClass
         fields = [
             "id", "assignment", "scheduled_at", "completed_at", "status",
-            "feedback_from_parent", "feedback_from_tutor", "created_at",
+            "video_class_link", "feedback_from_parent", "feedback_from_tutor", "created_at",
         ]
         read_only_fields = ["id", "created_at"]
