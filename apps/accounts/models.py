@@ -14,12 +14,15 @@ you always go through `create_user()` / `set_password()`, never
 `User(password="...")` directly.
 """
 
+import random
 import uuid
+from datetime import timedelta
 
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
 from django.core.validators import RegexValidator
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 
@@ -114,3 +117,54 @@ class User(AbstractUser):
 
     def __str__(self):
         return f"{self.email} ({self.role})"
+
+
+class EmailOTP(models.Model):
+    """
+    One-time code that makes User.is_verified functional -- previously
+    that field existed with a docstring promising OTP verification but
+    nothing actually generated, sent, or checked a code.
+
+    Email-only for now (not SMS/WhatsApp OTP) since Gmail SMTP is
+    already wired up for lead notifications and is genuinely free --
+    matches the same "stay on free hosting" reasoning used elsewhere
+    in this project (see apps.leads.signals).
+    """
+
+    CODE_LENGTH = 6
+    VALIDITY_MINUTES = 10
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="email_otps")
+    code = models.CharField(max_length=CODE_LENGTH)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "accounts_email_otp"
+        indexes = [models.Index(fields=["user", "is_used"])]
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        state = "used" if self.is_used else ("expired" if not self.is_valid() else "active")
+        return f"OTP for {self.user.email} ({state})"
+
+    def is_valid(self):
+        return not self.is_used and timezone.now() <= self.expires_at
+
+    @classmethod
+    def generate_for(cls, user):
+        """
+        Create a fresh code for this user, invalidating any earlier
+        unused ones first -- only the most recently requested code
+        should ever work, so a stale code sitting in an old email
+        can't be replayed after the user has already asked for (and
+        presumably read) a newer one.
+        """
+        cls.objects.filter(user=user, is_used=False).update(is_used=True)
+        code = f"{random.randint(0, 10 ** cls.CODE_LENGTH - 1):0{cls.CODE_LENGTH}d}"
+        return cls.objects.create(
+            user=user, code=code, expires_at=timezone.now() + timedelta(minutes=cls.VALIDITY_MINUTES)
+        )
