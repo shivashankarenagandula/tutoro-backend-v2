@@ -86,6 +86,12 @@ INSTALLED_APPS = [
     'apps.notifications',
     'apps.audit',
     'apps.leads',
+    # django-axes -- brute-force lockout for the Django admin login page.
+    # /api/auth/login/ already has its own IP-rate-limited throttle
+    # (ThrottledTokenObtainPairView, see apps/accounts/views.py); admin
+    # had nothing until now (Phase 0 roadmap item: "login throttling ...
+    # on /api/auth/login/ AND Django admin login").
+    'axes',
 ]
 
 MIDDLEWARE = [
@@ -98,6 +104,19 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Must be the LAST middleware in the list -- axes docs require this
+    # so it sees the final response/request state before deciding
+    # whether to lock out. Only affects the admin login (see
+    # AXES_ONLY_ADMIN_SITE below), so it doesn't interact with the
+    # DRF-throttled /api/auth/login/ at all.
+    'axes.middleware.AxesMiddleware',
+]
+
+# django-axes needs its backend checked before Django's default so it
+# can reject already-locked-out attempts before a real auth check runs.
+AUTHENTICATION_BACKENDS = [
+    'axes.backends.AxesStandaloneBackend',
+    'django.contrib.auth.backends.ModelBackend',
 ]
 
 # Which frontend origins are allowed to call this API from the browser.
@@ -257,6 +276,29 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
 }
+
+# -----------------------------------------------------------------
+# DJANGO-AXES -- brute-force lockout for the Django admin login page.
+# Scoped to admin only (AXES_ONLY_ADMIN_SITE) so it never touches
+# /api/auth/login/, which already has its own throttle above; the two
+# mechanisms are deliberately independent rather than layered, so a
+# failed API login attempt never counts toward an admin lockout or
+# vice versa.
+# -----------------------------------------------------------------
+AXES_ONLY_ADMIN_SITE = True
+# Locked out after this many failures from the same combination of
+# username + IP -- keyed on both (the axes default) so one attacker
+# spraying passwords across many admin usernames from one IP is still
+# caught, and so one legitimate admin's mistyped password doesn't lock
+# out a different admin sharing an office IP.
+AXES_FAILURE_LIMIT = 5
+# Cooloff is a timedelta, not raw hours, in modern axes versions --
+# short enough that a genuine admin isn't locked out for long, long
+# enough to make scripted brute-forcing impractical at this scale.
+AXES_COOLOFF_TIME = timedelta(minutes=30)
+# A successful login clears the failure count for that username/IP
+# pair, rather than making a lockout persist through a later success.
+AXES_RESET_ON_SUCCESS = True
 
 # -----------------------------------------------------------------
 # EMAIL -- instant notification when a new lead comes in.
