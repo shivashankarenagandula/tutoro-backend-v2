@@ -73,12 +73,13 @@ class TutorRegisterSerializer(serializers.Serializer):
     experience_years = serializers.IntegerField(required=False, default=0, min_value=0)
     qualification = serializers.CharField(max_length=200, required=False, allow_blank=True)
     teaching_mode = serializers.ChoiceField(
-        choices=TutorProfile.TeachingMode.choices, default=TutorProfile.TeachingMode.OFFLINE
+        choices=TutorProfile.TeachingMode.choices, default=TutorProfile.TeachingMode.HOME
     )
     fee_type = serializers.ChoiceField(
         choices=TutorProfile.FeeType.choices, default=TutorProfile.FeeType.PER_HOUR
     )
-    expected_fee = serializers.DecimalField(max_digits=8, decimal_places=2, required=False, allow_null=True)
+    online_fee = serializers.DecimalField(max_digits=8, decimal_places=2, required=False, allow_null=True)
+    home_visit_fee = serializers.DecimalField(max_digits=8, decimal_places=2, required=False, allow_null=True)
 
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
@@ -111,9 +112,10 @@ class TutorRegisterSerializer(serializers.Serializer):
             full_name=validated_data["full_name"],
             experience_years=validated_data.get("experience_years", 0),
             qualification=validated_data.get("qualification", ""),
-            teaching_mode=validated_data.get("teaching_mode", TutorProfile.TeachingMode.OFFLINE),
+            teaching_mode=validated_data.get("teaching_mode", TutorProfile.TeachingMode.HOME),
             fee_type=validated_data.get("fee_type", TutorProfile.FeeType.PER_HOUR),
-            expected_fee=validated_data.get("expected_fee"),
+            online_fee=validated_data.get("online_fee"),
+            home_visit_fee=validated_data.get("home_visit_fee"),
             # Every tutor starts PENDING — verification is a separate,
             # deliberate admin action, never automatic on signup.
             verification_status=TutorProfile.VerificationStatus.PENDING,
