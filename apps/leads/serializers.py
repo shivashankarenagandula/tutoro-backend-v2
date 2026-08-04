@@ -37,7 +37,8 @@ class ParentLeadSerializer(serializers.ModelSerializer):
         model = ParentLead
         fields = [
             "id", "name", "phone_number", "email", "area", "student_class",
-            "subject", "preferred_timing", "consent_given",
+            "subject", "preferred_timing", "teaching_mode_preference",
+            "consent_given",
         ]
         read_only_fields = ["id"]
 
