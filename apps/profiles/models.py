@@ -16,6 +16,12 @@ from django.db import models
 
 from apps.accounts.models import User
 from apps.catalog.models import Area, Subject
+from apps.profiles.validators import (
+    validate_document_extension,
+    validate_document_size,
+    validate_image_extension,
+    validate_image_size,
+)
 
 
 def tutor_document_path(instance, filename):
@@ -50,7 +56,7 @@ class ParentProfile(models.Model):
 class TutorProfile(models.Model):
     class TeachingMode(models.TextChoices):
         ONLINE = "ONLINE", "Online only"
-        OFFLINE = "OFFLINE", "Home visit only"
+        HOME = "HOME", "Home visit only"
         BOTH = "BOTH", "Both"
 
     class FeeType(models.TextChoices):
@@ -70,20 +76,47 @@ class TutorProfile(models.Model):
     qualification = models.CharField(max_length=200, blank=True)
     experience_years = models.PositiveSmallIntegerField(default=0)
 
-    profile_photo = models.ImageField(upload_to=tutor_photo_path, null=True, blank=True)
-    resume_file = models.FileField(upload_to=tutor_document_path, null=True, blank=True)
+    profile_photo = models.ImageField(
+        upload_to=tutor_photo_path, null=True, blank=True,
+        validators=[validate_image_extension, validate_image_size],
+    )
+    resume_file = models.FileField(
+        upload_to=tutor_document_path, null=True, blank=True,
+        validators=[validate_document_extension, validate_document_size],
+    )
     qualification_document = models.FileField(
-        upload_to=tutor_document_path, null=True, blank=True
+        upload_to=tutor_document_path, null=True, blank=True,
+        validators=[validate_document_extension, validate_document_size],
     )
 
     subjects = models.ManyToManyField(Subject, related_name="tutors", blank=True)
     preferred_areas = models.ManyToManyField(Area, related_name="tutors", blank=True)
 
     teaching_mode = models.CharField(
-        max_length=10, choices=TeachingMode.choices, default=TeachingMode.OFFLINE
+        max_length=10, choices=TeachingMode.choices, default=TeachingMode.HOME
     )
     fee_type = models.CharField(max_length=10, choices=FeeType.choices, default=FeeType.PER_HOUR)
+
+    # DEPRECATED: kept (nullable, no longer written to by new code) so
+    # historical data and any in-flight client isn't broken by a hard
+    # delete. New code should read/write online_fee / home_visit_fee
+    # instead. Safe to drop in a later migration once the frontend and
+    # any cached clients no longer reference it.
     expected_fee = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+
+    # Split pricing: a tutor teaching BOTH modes can (and usually does)
+    # charge differently for online vs. traveling to a student's home.
+    # Both nullable -- a tutor who only does one mode only fills in the
+    # relevant field; suggest_tutors_for_request / serializers decide
+    # which one to surface based on the request's mode.
+    online_fee = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True,
+        help_text="Fee for online sessions, in the unit set by fee_type.",
+    )
+    home_visit_fee = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True,
+        help_text="Fee for in-person home-visit sessions, in the unit set by fee_type.",
+    )
 
     verification_status = models.CharField(
         max_length=10, choices=VerificationStatus.choices, default=VerificationStatus.PENDING
