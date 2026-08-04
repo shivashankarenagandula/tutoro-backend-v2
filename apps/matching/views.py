@@ -25,7 +25,12 @@ from apps.accounts.permissions import IsAdminRole, IsParentRole
 from apps.catalog.models import Area
 
 from .models import Assignment, StudentRequest
-from .serializers import AssignmentSerializer, StudentRequestSerializer, TutorSuggestionSerializer
+from .serializers import (
+    AcademySuggestionSerializer,
+    AssignmentSerializer,
+    StudentRequestSerializer,
+    TutorSuggestionSerializer,
+)
 from .services import suggest_tutors_for_request
 
 
@@ -65,7 +70,10 @@ class StudentRequestListCreateView(generics.ListCreateAPIView):
 class SuggestTutorsView(APIView):
     """
     GET /api/matching/requests/<id>/suggest-tutors/
-    Admin-only. Returns ranked candidates, same-area first.
+    Admin-only. Returns ranked candidates for whichever mode the
+    request actually needs (HOME/ONLINE tutors, or ACADEMY referral
+    candidates) -- see matching.services.suggest_tutors_for_request
+    for how that branch is chosen, including the ANY fallback order.
     """
 
     permission_classes = [IsAdminRole]
@@ -73,17 +81,23 @@ class SuggestTutorsView(APIView):
     def get(self, request, pk):
         student_request = get_object_or_404(StudentRequest, pk=pk)
 
-        candidates, same_area_ids = suggest_tutors_for_request(student_request)
-        serializer = TutorSuggestionSerializer(
-            candidates, many=True, context={"same_area_ids": same_area_ids}
-        )
+        candidates, same_area_ids, mode = suggest_tutors_for_request(student_request)
+
+        Mode = StudentRequest.TeachingModePreference
+        if mode == Mode.ACADEMY:
+            serializer = AcademySuggestionSerializer(candidates, many=True)
+        else:
+            serializer = TutorSuggestionSerializer(
+                candidates, many=True, context={"same_area_ids": same_area_ids}
+            )
+
         return Response({
             "student_request_id": str(student_request.id),
             "area": student_request.area.name,
+            "mode": mode,
             "count": len(candidates),
             "results": serializer.data,
         })
-
 
 class AssignmentListCreateView(generics.ListCreateAPIView):
     """Admin-only — creating an Assignment IS the staff-mediated match."""
