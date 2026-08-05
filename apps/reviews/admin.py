@@ -12,8 +12,11 @@ class ReviewAdmin(admin.ModelAdmin):
     staff who just want to flip is_published directly today.
     """
 
-    list_display = ["tutor", "reviewer", "rating", "is_published", "created_at"]
-    list_filter = ["is_published", "rating"]
+    list_display = ["tutor", "reviewer", "rating", "is_published", "ai_moderation_status", "created_at"]
+    list_filter = ["is_published", "ai_moderation_status", "rating"]
     list_editable = ["is_published"]
     search_fields = ["tutor__full_name", "reviewer__email", "comment"]
-    readonly_fields = ["assignment", "reviewer", "tutor", "rating", "comment", "created_at"]
+    readonly_fields = [
+        "assignment", "reviewer", "tutor", "rating", "comment",
+        "ai_moderation_status", "ai_moderation_notes", "created_at",
+    ]
