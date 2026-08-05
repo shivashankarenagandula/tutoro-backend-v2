@@ -188,6 +188,14 @@ class DemoClass(models.Model):
     # (Assignment.video_class_link).
     video_class_link = models.URLField(blank=True)
 
+    # Set by the send_demo_reminders management command once a
+    # reminder has gone out for this specific demo -- prevents sending
+    # the same reminder twice if the command runs again before the
+    # demo happens. Reset would only be needed if a demo gets
+    # rescheduled to a new scheduled_at, which callers should do
+    # explicitly (see note in the management command).
+    reminder_sent = models.BooleanField(default=False)
+
     feedback_from_parent = models.TextField(blank=True)
     feedback_from_tutor = models.TextField(blank=True)
 
