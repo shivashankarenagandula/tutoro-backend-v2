@@ -1,93 +1,115 @@
 """
-reviews.serializers
----------------------
-Two shapes for two audiences, same model:
+reviews.views
+--------------
+Three tiers, mirroring the pattern already used in apps.matching.views:
 
-  ReviewSerializer        -- public-facing read shape (tutor listing
-                              pages, admin list view). Never accepts
-                              writes.
-  ReviewCreateSerializer   -- parent-facing write shape. Only exposes
-                              `assignment`, `rating`, `comment` -- every
-                              other field (`reviewer`, `tutor`,
-                              `is_published`) is derived server-side so
-                              a parent can never review on someone
-                              else's behalf, review a tutor they were
-                              never actually matched with, or publish
-                              their own review.
+  ReviewListView       -- public, published reviews only (tutor
+                           listing pages read from this).
+  ReviewCreateView      -- parent-only, write their own review for an
+                           assignment they actually had.
+  AdminReviewListView /
+  ReviewPublishView     -- staff-only moderation queue + the actual
+                           publish/unpublish action.
 """
 
-from rest_framework import serializers
+from django.shortcuts import get_object_or_404
+from rest_framework import generics, permissions
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from apps.matching.models import Assignment
+from apps.accounts.permissions import IsAdminRole, IsParentRole
 
 from .models import Review
+from .serializers import ReviewCreateSerializer, ReviewSerializer
+from .services import moderate_review
 
 
-class ReviewSerializer(serializers.ModelSerializer):
-    """Read-only. Used for both the public listing and admin moderation
-    queue -- the admin view just also includes unpublished rows via the
-    queryset, not a different serializer shape."""
+class ReviewListView(generics.ListAPIView):
+    """
+    GET /api/reviews/?tutor=<tutor_id>
+    Public. Only ever returns published reviews -- unpublished rows
+    are only visible via AdminReviewListView.
+    """
 
-    tutor_name = serializers.CharField(source="tutor.full_name", read_only=True)
-    reviewer_name = serializers.SerializerMethodField()
+    serializer_class = ReviewSerializer
+    permission_classes = [permissions.AllowAny]
 
-    class Meta:
-        model = Review
-        fields = [
-            "id", "assignment", "tutor", "tutor_name", "reviewer_name",
-            "rating", "comment", "is_published", "created_at",
-        ]
-        read_only_fields = fields
-
-    def get_reviewer_name(self, obj):
-        # Parents are the reviewers today (see ReviewCreateSerializer);
-        # this stays generic so a future tutor-reviews-parent direction
-        # doesn't need a serializer rewrite, just a real name to show.
-        parent_profile = getattr(obj.reviewer, "parent_profile", None)
-        return parent_profile.full_name if parent_profile else obj.reviewer.email
+    def get_queryset(self):
+        qs = Review.objects.filter(is_published=True).select_related(
+            "tutor", "reviewer__parent_profile"
+        )
+        tutor_id = self.request.query_params.get("tutor")
+        if tutor_id:
+            qs = qs.filter(tutor_id=tutor_id)
+        return qs
 
 
-class ReviewCreateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Review
-        fields = ["id", "assignment", "rating", "comment"]
-        read_only_fields = ["id"]
+class ReviewCreateView(generics.CreateAPIView):
+    """POST /api/reviews/submit/ -- parent submits a review for one of
+    their own completed/ongoing assignments. Starts unpublished."""
 
-    def validate_assignment(self, assignment):
-        request = self.context["request"]
+    serializer_class = ReviewCreateSerializer
+    permission_classes = [permissions.IsAuthenticated, IsParentRole]
 
-        # Anti-fraud property from the model docstring, enforced here:
-        # a review can only be left by the parent who actually owns the
-        # StudentRequest this Assignment belongs to.
-        parent_profile = getattr(request.user, "parent_profile", None)
-        if not parent_profile or assignment.student_request.parent_id != parent_profile.id:
-            raise serializers.ValidationError(
-                "You can only review a tutor you were actually matched with."
-            )
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        review = serializer.save()
+        # Synchronous, best-effort -- there's no task queue in this
+        # project (see apps.leads.signals for the same reasoning), and
+        # a single short JSON-mode call is fast enough to run inline
+        # here without meaningfully delaying the response. Never raises
+        # (see reviews.services.moderate_review docstring), so it can't
+        # turn a successful review submission into a failed request.
+        moderate_review(review)
+        review.refresh_from_db()
+        return Response(
+            ReviewSerializer(review).data,
+            status=201,
+        )
 
-        # Reviewing only makes sense once classes genuinely happened --
-        # not while still PROPOSED/DEMO_SCHEDULED, and not for a match
-        # that was DECLINED before ever starting.
-        reviewable_statuses = {Assignment.Status.ACCEPTED, Assignment.Status.ENDED}
-        if assignment.status not in reviewable_statuses:
-            raise serializers.ValidationError(
-                "This assignment hasn't reached ongoing/ended classes yet, "
-                "so it can't be reviewed."
-            )
 
-        # The DB's OneToOneField already enforces one review per
-        # assignment, but that surfaces as an opaque IntegrityError --
-        # catching it here gives a real validation message instead.
-        if Review.objects.filter(assignment=assignment).exists():
-            raise serializers.ValidationError("This assignment already has a review.")
+class AdminReviewListView(generics.ListAPIView):
+    """
+    GET /api/reviews/admin/?is_published=false
+    Staff-only moderation queue. Defaults to showing unpublished
+    reviews first (what staff actually need to act on) but supports
+    filtering either way.
+    """
 
-        return assignment
+    serializer_class = ReviewSerializer
+    permission_classes = [IsAdminRole]
 
-    def create(self, validated_data):
-        assignment = validated_data["assignment"]
-        validated_data["reviewer"] = self.context["request"].user
-        validated_data["tutor"] = assignment.tutor
-        # Never publish on creation -- see AI review moderation
-        # (Phase 4 roadmap item 20) and ReviewPublishView below.
-        validated_data["is_published"] = False
-        return super().create(validated_data)
+    def get_queryset(self):
+        qs = Review.objects.select_related("tutor", "reviewer__parent_profile").order_by(
+            "is_published", "-created_at"
+        )
+        is_published = self.request.query_params.get("is_published")
+        if is_published is not None:
+            qs = qs.filter(is_published=is_published.lower() in ("1", "true", "yes"))
+        moderation_status = self.request.query_params.get("ai_moderation_status")
+        if moderation_status:
+            qs = qs.filter(ai_moderation_status=moderation_status.upper())
+        return qs
+
+
+class ReviewPublishView(APIView):
+    """
+    PATCH /api/reviews/<id>/publish/  body: {"is_published": true|false}
+    Staff-only. Separate from a general update endpoint deliberately --
+    publishing is a moderation decision, not "editing a review",
+    so it doesn't accidentally let staff rewrite rating/comment too.
+    """
+
+    permission_classes = [IsAdminRole]
+
+    def patch(self, request, pk):
+        review = get_object_or_404(Review, pk=pk)
+
+        is_published = request.data.get("is_published")
+        if is_published is None:
+            return Response({"detail": "is_published is required."}, status=400)
+
+        review.is_published = bool(is_published)
+        review.save(update_fields=["is_published"])
+        return Response(ReviewSerializer(review).data)
