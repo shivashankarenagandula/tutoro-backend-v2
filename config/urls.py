@@ -25,4 +25,5 @@ urlpatterns = [
     path("api/matching/", include("apps.matching.urls")), # requests, assignments, suggest-tutors
     path("api/leads/", include("apps.leads.urls")),        # parent/, tutor/ -- public, from the marketing site
     path("api/reviews/", include("apps.reviews.urls")),    # list, submit, admin moderation queue
+    path("api/ai/", include("apps.ai.urls")),               # faq/ -- public FAQ chatbot (Phase 4 item 21)
 ]
