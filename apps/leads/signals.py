@@ -28,6 +28,8 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
+from apps.notifications.services import notify_admin_whatsapp
+
 from .models import LeadStatus, ParentLead, TutorLead
 
 # How far back to look for a matching phone/email when flagging a
@@ -70,6 +72,7 @@ def notify_new_parent_lead(sender, instance, created, **kwargs):
         f"Preferred timing: {instance.preferred_timing}\n"
     )
     threading.Thread(target=_send_notification_email, args=(subject, message), daemon=True).start()
+    threading.Thread(target=notify_admin_whatsapp, args=(message,), daemon=True).start()
 
 
 @receiver(post_save, sender=TutorLead)
@@ -88,6 +91,7 @@ def notify_new_tutor_lead(sender, instance, created, **kwargs):
         f"Expected fee: {instance.expected_fee}\n"
     )
     threading.Thread(target=_send_notification_email, args=(subject, message), daemon=True).start()
+    threading.Thread(target=notify_admin_whatsapp, args=(message,), daemon=True).start()
 
 
 def _find_recent_duplicate(model, instance):
