@@ -86,6 +86,7 @@ INSTALLED_APPS = [
     'apps.notifications',
     'apps.audit',
     'apps.leads',
+    'apps.ai',
     # django-axes -- brute-force lockout for the Django admin login page.
     # /api/auth/login/ already has its own IP-rate-limited throttle
     # (ThrottledTokenObtainPairView, see apps/accounts/views.py); admin
@@ -274,6 +275,12 @@ REST_FRAMEWORK = {
         # 6-digit space.
         'otp_request': '5/hour',
         'otp_verify': '15/hour',
+        # Phase 4 AI-layer scopes -- each hit here costs a real
+        # Anthropic API call, so every AI-facing endpoint gets its own
+        # scope rather than sharing the generic ones above.
+        'generate_bio': '10/hour',   # Sonnet-backed, pricier than the rest
+        'tutor_search': '60/hour',   # public browsing -- looser, most calls have no ?q= at all
+        'faq_chat': '20/hour',       # public, anonymous -- IP-keyed via AnonRateThrottle
     },
 }
 
