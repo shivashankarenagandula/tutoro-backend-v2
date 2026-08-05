@@ -35,7 +35,8 @@ class ReviewSerializer(serializers.ModelSerializer):
         model = Review
         fields = [
             "id", "assignment", "tutor", "tutor_name", "reviewer_name",
-            "rating", "comment", "is_published", "created_at",
+            "rating", "comment", "is_published",
+            "ai_moderation_status", "ai_moderation_notes", "created_at",
         ]
         read_only_fields = fields
 
