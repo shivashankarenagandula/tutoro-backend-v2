@@ -15,7 +15,7 @@ Three permission tiers in this one file, which is the whole point of
 
 import math
 import random
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions
 from rest_framework.response import Response
@@ -23,6 +23,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.permissions import IsAdminRole, IsParentRole
 from apps.catalog.models import Area
+from apps.leads.models import ParentLead
 
 from .models import Assignment, StudentRequest
 from .serializers import (
@@ -215,4 +216,66 @@ class RecentMatchByAreaView(APIView):
             "tutor_experience_years": 4,
             "distance_km": round(random.uniform(1.5, 3.5), 1),
             "tutor_verified": True,
+        })
+
+
+# Assignment statuses that represent a genuine successful match, for
+# the "converted" step of the funnel. Broader than _LIVE_MATCH_STATUSES
+# above (which is display-only, "currently active") -- ENDED still
+# counts as having successfully converted at some point.
+_CONVERTED_STATUSES = [
+    Assignment.Status.DEMO_SCHEDULED,
+    Assignment.Status.DEMO_COMPLETED,
+    Assignment.Status.ACCEPTED,
+    Assignment.Status.ENDED,
+]
+
+
+class AnalyticsSummaryView(APIView):
+    """
+    GET /api/matching/analytics/summary/
+    Admin-only. Plain-English purpose: "how is the business doing,
+    area by area, and how many leads actually turn into paying
+    matches."
+
+    Two things, both cheap aggregate queries (no new infra needed):
+      1. area-wise demand: how many parent leads came from each area
+      2. conversion funnel: leads -> requests -> assignments -> converted
+
+    Deliberately NOT paginated or filterable yet -- at current lead
+    volume this is a handful of rows; add filtering (?date_from=) only
+    once that stops being true.
+    """
+
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        leads_by_area = list(
+            ParentLead.objects.values("area")
+            .annotate(count=Count("id"))
+            .order_by("-count")
+        )
+
+        requests_by_area = list(
+            StudentRequest.objects.values("area__name")
+            .annotate(count=Count("id"))
+            .order_by("-count")
+        )
+
+        total_leads = ParentLead.objects.count()
+        total_requests = StudentRequest.objects.count()
+        total_assignments = Assignment.objects.count()
+        total_converted = Assignment.objects.filter(status__in=_CONVERTED_STATUSES).count()
+
+        return Response({
+            "leads_by_area": leads_by_area,
+            "requests_by_area": [
+                {"area": row["area__name"], "count": row["count"]} for row in requests_by_area
+            ],
+            "funnel": {
+                "leads": total_leads,
+                "requests": total_requests,
+                "assignments": total_assignments,
+                "converted": total_converted,
+            },
         })
