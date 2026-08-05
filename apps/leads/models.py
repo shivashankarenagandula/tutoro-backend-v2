@@ -83,6 +83,31 @@ class ParentLead(models.Model):
     consent_version = models.CharField(max_length=20, blank=True)
 
     status = models.CharField(max_length=10, choices=LeadStatus.choices, default=LeadStatus.NEW)
+
+    # Phase 4 item 23 -- AI-assisted triage, run via a Django admin
+    # action (see admin.py), not automatically on every submission:
+    # triage is meant to help staff prioritize a backlog, not run (and
+    # cost money) on every single lead the instant it arrives.
+    class AIPriority(models.TextChoices):
+        UNSCORED = "UNSCORED", "Not yet triaged"
+        HIGH = "HIGH", "High priority"
+        MEDIUM = "MEDIUM", "Medium priority"
+        LOW = "LOW", "Low priority"
+
+    ai_priority = models.CharField(max_length=10, choices=AIPriority.choices, default=AIPriority.UNSCORED)
+    ai_triage_notes = models.TextField(blank=True)
+
+    # Phase 4 item 24 -- duplicate detection. Rule-based (exact
+    # phone/email match against recent leads), not an AI call: an exact
+    # match is something a query answers deterministically, faster and
+    # more reliably than asking a model, so there's no reason to spend
+    # AI budget on it. Computed automatically on save (see signals.py),
+    # unlike ai_priority above which is staff-triggered.
+    is_potential_duplicate = models.BooleanField(default=False)
+    duplicate_of = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="duplicates"
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -112,6 +137,15 @@ class TutorLead(models.Model):
     consent_version = models.CharField(max_length=20, blank=True)
 
     status = models.CharField(max_length=10, choices=LeadStatus.choices, default=LeadStatus.NEW)
+
+    ai_priority = models.CharField(max_length=10, choices=ParentLead.AIPriority.choices, default=ParentLead.AIPriority.UNSCORED)
+    ai_triage_notes = models.TextField(blank=True)
+
+    is_potential_duplicate = models.BooleanField(default=False)
+    duplicate_of = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="duplicates"
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
