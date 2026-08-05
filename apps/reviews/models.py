@@ -36,6 +36,24 @@ class Review(models.Model):
     # Moderation flag — don't show unmoderated reviews publicly by default.
     is_published = models.BooleanField(default=False)
 
+    class ModerationStatus(models.TextChoices):
+        PENDING = "PENDING", "Awaiting AI check"
+        OK = "OK", "AI found nothing concerning"
+        FLAGGED = "FLAGGED", "AI flagged for staff attention"
+        SKIPPED = "SKIPPED", "AI moderation unavailable when submitted"
+
+    # Phase 4 item 20. AI *assists* moderation, it never auto-publishes
+    # or auto-hides — is_published above stays a staff-only decision via
+    # ReviewPublishView/admin. This just tells staff where to look first:
+    # a FLAGGED review with a one-line reason beats staff reading every
+    # review in submission order with no signal at all.
+    ai_moderation_status = models.CharField(
+        max_length=10, choices=ModerationStatus.choices, default=ModerationStatus.PENDING
+    )
+    ai_moderation_notes = models.TextField(
+        blank=True, help_text="Short AI-written reason, only meaningful when ai_moderation_status is FLAGGED."
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
