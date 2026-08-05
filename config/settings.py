@@ -331,6 +331,21 @@ EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default=EMAIL_HOST_USER)
 ADMIN_NOTIFICATION_EMAIL = env('ADMIN_NOTIFICATION_EMAIL', default=EMAIL_HOST_USER)
 
+
+# WHATSAPP -- instant staff notification when a new lead comes in, via
+# Twilio's WhatsApp Business API. Same philosophy as EMAIL above: if
+# these aren't set, apps.notifications.services.send_whatsapp_message
+# silently no-ops rather than erroring, so lead submission itself can
+# never break because WhatsApp isn't configured yet.
+#
+# TWILIO_WHATSAPP_FROM must be a Twilio-approved WhatsApp sender,
+# formatted like 'whatsapp:+14155238886'. ADMIN_WHATSAPP_NUMBER is
+# where staff notifications land, formatted like 'whatsapp:+91XXXXXXXXXX'.
+TWILIO_ACCOUNT_SID = env('TWILIO_ACCOUNT_SID', default='')
+TWILIO_AUTH_TOKEN = env('TWILIO_AUTH_TOKEN', default='')
+TWILIO_WHATSAPP_FROM = env('TWILIO_WHATSAPP_FROM', default='')
+ADMIN_WHATSAPP_NUMBER = env('ADMIN_WHATSAPP_NUMBER', default='')
+
 # -----------------------------------------------------------------
 # ANTHROPIC API -- used by apps/ai (Phase 4: smart matching, bio
 # generation, review moderation, FAQ chatbot). Never hardcode the key;
