@@ -32,7 +32,7 @@ _INSECURE_DEFAULT_SECRET_KEY = 'django-insecure-k&62lru*(1l*!f=g*y)c&bwmcg=mf=jq
 SECRET_KEY = env('DJANGO_SECRET_KEY', default=_INSECURE_DEFAULT_SECRET_KEY)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env.bool('DEBUG', default=True)
+DEBUG = env.bool('DEBUG', default=False)
 
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1', 'testserver'])
 
