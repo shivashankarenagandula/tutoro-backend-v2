@@ -104,7 +104,7 @@ def ai_rerank_by_notes(student_request, candidates):
 
     Returns `candidates` unchanged, in the same order, if: there are no
     notes to weigh, fewer than 2 candidates (nothing to reorder), no
-    ANTHROPIC_API_KEY is configured, or the AI call fails or returns
+    GEMINI_API_KEY is configured, or the AI call fails or returns
     something we can't trust (missing/extra ids). Re-ranking is a
     quality enhancement layered on top of working rule-based matching,
     never a hard dependency for suggestions to return results -- so a
