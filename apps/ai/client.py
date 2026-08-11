@@ -83,6 +83,18 @@ def complete(system, user, *, model=None, max_tokens=1024, temperature=0.4):
     Plain-text completion. Returns the model's text response as a
     plain string.
 
+    thinking_budget=0: Gemini 3.x models "think" (internal reasoning,
+    not shown to the caller) before producing the visible answer by
+    default, and that thinking consumes tokens from the SAME
+    max_output_tokens budget as the answer itself. None of the tasks
+    that call complete() (FAQ answers, classification, short prose)
+    need multi-step reasoning -- without this, a low max_tokens value
+    (e.g. 300 for a short FAQ answer) gets entirely consumed by
+    invisible thinking, and the visible answer comes back truncated
+    mid-sentence with no error raised, since the SDK call still
+    "succeeds." This was the root cause of the FAQ chatbot cutting
+    answers off after a few words.
+
     Raises:
       AIUnavailableError -- no API key configured.
       Whatever the `google-genai` SDK itself raises on an API-level
@@ -102,6 +114,7 @@ def complete(system, user, *, model=None, max_tokens=1024, temperature=0.4):
             system_instruction=system,
             max_output_tokens=max_tokens,
             temperature=temperature,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
         ),
     )
     return response.text or ""
@@ -132,6 +145,7 @@ def complete_json(system, user, *, model=None, max_tokens=1024, temperature=0.2)
             max_output_tokens=max_tokens,
             temperature=temperature,
             response_mime_type="application/json",
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
         ),
     )
     raw = response.text or ""
