@@ -1,15 +1,19 @@
 """
 ai.client
 ----------
-Phase 4 roadmap item 17: one shared, thin wrapper around the Anthropic
-SDK that every AI feature in this codebase calls into, rather than
-each feature (smart matching, bio generation, review moderation, FAQ
+Phase 4 roadmap item 17: one shared, thin wrapper around an LLM SDK
+that every AI feature in this codebase calls into, rather than each
+feature (smart matching, bio generation, review moderation, FAQ
 chatbot, semantic search, lead triage, area-page copy) reimplementing
 its own client setup, model choice, and missing-key handling.
 
+Provider: Google Gemini, via the `google-genai` SDK (the current
+package -- NOT the older, now-legacy `google-generativeai` package,
+which uses a different import path and API shape).
+
 Design choices worth knowing before you touch this file:
 
-  - ANTHROPIC_API_KEY is read from settings, which reads it from the
+  - GEMINI_API_KEY is read from settings, which reads it from the
     environment (see config/settings.py). If it's blank, every
     function here raises AIUnavailableError immediately rather than
     letting a request hang or fail with a confusing SDK error deep in
@@ -17,17 +21,21 @@ Design choices worth knowing before you touch this file:
     and degrade gracefully wherever an AI feature is an enhancement on
     top of working non-AI behavior (e.g. matching, search) -- see
     apps/matching/services.py::ai_rerank_by_notes for the pattern.
-  - Default model is Haiku (see DEFAULT_MODEL below), not Sonnet or
-    Opus. Every Phase 4 use case sitting on top of this module is a
-    small-context, low-latency task (ranking a handful of candidates,
-    classifying a lead, moderating a short review) called
-    synchronously inside a request/response cycle -- Haiku's quality
-    is plenty for these and its cost/latency profile is what you
-    actually want for something a user is waiting on. The two
-    exceptions that benefit from more creative/higher-quality output
-    (bio generation, area-page marketing copy) pass model=SONNET_MODEL
-    explicitly at the call site.
-  - The `anthropic` package is imported lazily inside _get_client(),
+  - Model names, as of when this was written (Aug 2026): Gemini's
+    lineup has been in genuine flux this year -- Gemini 3.5 Pro was
+    announced in May 2026 and, as of this writing, still hasn't
+    reached general availability after multiple delays. To avoid
+    hardcoding a model name that might get deprecated or renamed
+    without notice, both DEFAULT_MODEL and QUALITY_MODEL are
+    overridable via environment variables (GEMINI_DEFAULT_MODEL /
+    GEMINI_QUALITY_MODEL) without a code change -- see settings.py.
+    They currently both default to gemini-3.6-flash (confirmed GA),
+    since no Pro-tier model was confirmed stable at write time. Once
+    a Pro-tier model is GA and you want higher-quality output for the
+    two call sites that ask for QUALITY_MODEL explicitly (bio
+    generation, area-page marketing copy), just set
+    GEMINI_QUALITY_MODEL in the environment -- no code change needed.
+  - The `google-genai` package is imported lazily inside _get_client(),
     not at module load time -- so importing this module (or any app
     that imports it) never fails just because the package happens to
     be missing in some environment; the failure only happens if an AI
@@ -41,16 +49,17 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_MODEL = getattr(settings, "GEMINI_DEFAULT_MODEL", "") or "gemini-3.6-flash"
 # Used explicitly by the few call sites that need better prose quality
-# than Haiku gives -- bio generation, area-page copy -- not the
-# ranking/classification tasks, which stay on DEFAULT_MODEL.
-SONNET_MODEL = "claude-sonnet-5"
+# than the default gives -- bio generation, area-page copy -- not the
+# ranking/classification tasks, which stay on DEFAULT_MODEL. See the
+# module docstring re: why this isn't hardcoded to a Pro-tier model.
+QUALITY_MODEL = getattr(settings, "GEMINI_QUALITY_MODEL", "") or "gemini-3.6-flash"
 
 
 class AIUnavailableError(RuntimeError):
     """
-    Raised when an AI feature is invoked but ANTHROPIC_API_KEY isn't
+    Raised when an AI feature is invoked but GEMINI_API_KEY isn't
     configured. This is a normal, expected condition (e.g. local dev
     without a key) -- not a bug -- so it's its own exception type
     rather than a generic RuntimeError, letting callers catch
@@ -60,13 +69,13 @@ class AIUnavailableError(RuntimeError):
 
 
 def _get_client():
-    if not settings.ANTHROPIC_API_KEY:
+    if not settings.GEMINI_API_KEY:
         raise AIUnavailableError(
-            "ANTHROPIC_API_KEY is not set -- AI features are disabled until it is."
+            "GEMINI_API_KEY is not set -- AI features are disabled until it is."
         )
-    import anthropic  # noqa: local import, see module docstring
+    from google import genai  # noqa: local import, see module docstring
 
-    return anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    return genai.Client(api_key=settings.GEMINI_API_KEY)
 
 
 def complete(system, user, *, model=None, max_tokens=1024, temperature=0.4):
@@ -76,36 +85,56 @@ def complete(system, user, *, model=None, max_tokens=1024, temperature=0.4):
 
     Raises:
       AIUnavailableError -- no API key configured.
-      Whatever the `anthropic` SDK itself raises on an API-level
+      Whatever the `google-genai` SDK itself raises on an API-level
       failure (rate limit, timeout, etc.) -- deliberately NOT caught
       here, since this module doesn't know, per call site, whether a
       failure should degrade silently (matching re-rank) or surface
       to the user (an admin-triggered "generate bio" click). Callers
       decide that; see individual feature modules for the pattern.
     """
+    from google.genai import types  # noqa: local import, see module docstring
+
     client = _get_client()
-    response = client.messages.create(
+    response = client.models.generate_content(
         model=model or DEFAULT_MODEL,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        system=system,
-        messages=[{"role": "user", "content": user}],
+        contents=user,
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=max_tokens,
+            temperature=temperature,
+        ),
     )
-    return "".join(block.text for block in response.content if block.type == "text")
+    return response.text or ""
 
 
 def complete_json(system, user, *, model=None, max_tokens=1024, temperature=0.2):
     """
     Like complete(), but for call sites that asked the model (via
     their own `system` prompt instructions) to respond with JSON.
-    Strips a ```json fence if the model added one anyway despite being
-    told not to, then parses.
+    Uses Gemini's native response_mime_type='application/json' mode
+    (more reliable than asking nicely in the prompt and hoping), but
+    still strips a stray ```json fence defensively in case the model
+    adds one anyway -- this happened occasionally enough in practice
+    to be worth the one extra check.
 
     Raises ValueError (not json.JSONDecodeError directly) if parsing
     fails, so callers can catch one clear exception type regardless of
     exactly how the model's output was malformed.
     """
-    raw = complete(system, user, model=model, max_tokens=max_tokens, temperature=temperature)
+    from google.genai import types  # noqa: local import, see module docstring
+
+    client = _get_client()
+    response = client.models.generate_content(
+        model=model or DEFAULT_MODEL,
+        contents=user,
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=max_tokens,
+            temperature=temperature,
+            response_mime_type="application/json",
+        ),
+    )
+    raw = response.text or ""
     cleaned = raw.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.strip("`")
