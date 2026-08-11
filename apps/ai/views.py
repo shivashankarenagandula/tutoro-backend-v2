@@ -19,7 +19,7 @@ from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
 from apps.ai.client import AIUnavailableError, complete
-from apps.catalog.models import Area
+from apps.catalog.models import Area, StudentClass, Subject
 
 from .serializers import FAQChatSerializer
 
@@ -56,11 +56,18 @@ Tutoro is a tutor-matching service operating in Hyderabad, India.
 
 def _build_facts():
     """
-    Combines the static policy facts above with a live-queried list of
-    active service areas, so the chatbot's answer about "do you cover
-    X" is only ever as stale as the Area table itself -- not a
-    separately-maintained copy of it that someone has to remember to
-    update.
+    Combines the static policy facts above with live-queried lists of
+    active service areas and subjects, so answers to "do you cover X"
+    are only ever as stale as the actual Area/Subject tables -- not a
+    separately-maintained copy of them that someone has to remember to
+    update. (This already caused one real bug: the old hardcoded area
+    list was missing 2 of 8 real active areas.)
+
+    Class/grade levels are the one exception left as a fixed list
+    rather than a query -- StudentClass is a Python enum (see
+    apps.catalog.models), not a database table, so there's no separate
+    copy to drift out of sync in the first place; reading it here uses
+    the exact same source of truth request/profile validation does.
     """
     area_names = list(Area.objects.filter(is_active=True).order_by("name").values_list("name", flat=True))
     if area_names:
@@ -69,7 +76,17 @@ def _build_facts():
         # Genuinely no active areas configured -- tell the truth rather
         # than silently omitting this fact and letting the model guess.
         areas_line = "Tutoro does not have any active home-tutoring service areas configured right now."
-    return TUTORO_STATIC_FACTS + "\n- " + areas_line
+
+    subject_names = list(Subject.objects.filter(is_active=True).order_by("name").values_list("name", flat=True))
+    if subject_names:
+        subjects_line = "Tutoro currently has tutors available for these subjects: " + ", ".join(subject_names) + "."
+    else:
+        subjects_line = "Tutoro does not have any active subjects configured right now."
+
+    class_labels = [label for _, label in StudentClass.choices]
+    classes_line = "Tutoro covers these student levels: " + ", ".join(class_labels) + "."
+
+    return TUTORO_STATIC_FACTS + "\n- " + areas_line + "\n- " + subjects_line + "\n- " + classes_line
 
 
 class FAQChatThrottle(AnonRateThrottle):
