@@ -32,7 +32,7 @@ _INSECURE_DEFAULT_SECRET_KEY = 'django-insecure-k&62lru*(1l*!f=g*y)c&bwmcg=mf=jq
 SECRET_KEY = env('DJANGO_SECRET_KEY', default=_INSECURE_DEFAULT_SECRET_KEY)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env.bool('DEBUG', default=False)
+DEBUG = env.bool('DEBUG', default=True)
 
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1', 'testserver'])
 
@@ -347,15 +347,22 @@ TWILIO_WHATSAPP_FROM = env('TWILIO_WHATSAPP_FROM', default='')
 ADMIN_WHATSAPP_NUMBER = env('ADMIN_WHATSAPP_NUMBER', default='')
 
 # -----------------------------------------------------------------
-# ANTHROPIC API -- used by apps/ai (Phase 4: smart matching, bio
-# generation, review moderation, FAQ chatbot). Never hardcode the key;
-# it must come from the environment only. Left blank by default so
-# local dev without a key still boots -- apps/ai checks for this and
-# degrades gracefully (raises a clear error only when an AI feature is
-# actually invoked, not at Django startup) rather than crashing the
-# whole app for developers who aren't touching AI features yet.
+# GEMINI API -- used by apps/ai (Phase 4: smart matching, bio
+# generation, review moderation, FAQ chatbot, semantic search, lead
+# triage, area-page copy). Never hardcode the key; it must come from
+# the environment only. Left blank by default so local dev without a
+# key still boots -- apps/ai checks for this and degrades gracefully
+# (raises a clear error only when an AI feature is actually invoked,
+# not at Django startup) rather than crashing the whole app for
+# developers who aren't touching AI features yet.
+#
+# GEMINI_DEFAULT_MODEL / GEMINI_QUALITY_MODEL are optional overrides --
+# see apps/ai/client.py's module docstring for why these aren't
+# hardcoded to a single model name.
 # -----------------------------------------------------------------
-ANTHROPIC_API_KEY = env('ANTHROPIC_API_KEY', default='')
+GEMINI_API_KEY = env('GEMINI_API_KEY', default='')
+GEMINI_DEFAULT_MODEL = env('GEMINI_DEFAULT_MODEL', default='')
+GEMINI_QUALITY_MODEL = env('GEMINI_QUALITY_MODEL', default='')
 
 # -----------------------------------------------------------------
 # JAZZMIN ADMIN THEME
