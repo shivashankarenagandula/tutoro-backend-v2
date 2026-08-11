@@ -18,6 +18,10 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from apps.ai.client import AIUnavailableError, complete
 
 from .serializers import FAQChatSerializer
@@ -88,6 +92,11 @@ class FAQChatView(APIView):
                 status=503,
             )
         except Exception:
+            # Was silently swallowed before -- no way to tell what
+            # actually broke from Render's logs. This is now logged
+            # with the full traceback so the real cause (bad param,
+            # API-level rejection, rate limit, etc.) is visible.
+            logger.exception("FAQ chatbot request failed for question: %r", question)
             return Response(
                 {"detail": "Couldn't get an answer right now. Please try again shortly."},
                 status=503,
