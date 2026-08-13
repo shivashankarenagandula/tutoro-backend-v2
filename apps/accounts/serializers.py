@@ -11,12 +11,38 @@ avoiding here on purpose.
 """
 
 from django.db import transaction
+from django.utils.text import slugify
 from rest_framework import serializers
 
-from apps.catalog.models import Area, Subject
+from apps.catalog.models import Area, StudentClass, Subject
 from apps.profiles.models import ParentProfile, TutorProfile
 
 from .models import User
+
+
+def _get_or_create_subject(name):
+    """
+    Resolves a tutor-typed subject name (e.g. 'Maths') to a Subject
+    row, reusing an existing one case-insensitively (so 'maths' and
+    'Maths' don't create two catalog entries) and creating a new one
+    otherwise. Subjects were previously picked from a fixed list, so
+    this is what lets a tutor now type any subject freely while still
+    landing in the shared catalog other parts of the app (matching,
+    admin) rely on.
+    """
+    name = name.strip()
+    existing = Subject.objects.filter(name__iexact=name).first()
+    if existing:
+        return existing
+
+    base_slug = slugify(name) or "subject"
+    slug = base_slug
+    suffix = 1
+    while Subject.objects.filter(slug=slug).exists():
+        suffix += 1
+        slug = f"{base_slug}-{suffix}"
+
+    return Subject.objects.create(name=name, slug=slug)
 
 
 class PasswordResetRequestSerializer(serializers.Serializer):
@@ -51,6 +77,17 @@ class ParentRegisterSerializer(serializers.Serializer):
     address_line = serializers.CharField(max_length=255, required=False, allow_blank=True)
     pincode = serializers.CharField(max_length=10, required=False, allow_blank=True)
 
+    # Optional context about what the parent is looking for, captured
+    # once at signup instead of forcing it into a second step -- see
+    # ParentProfile.student_class/budget_fee/preferred_* for why these
+    # live alongside the account rather than only on StudentRequest.
+    student_class = serializers.ChoiceField(
+        choices=StudentClass.choices, required=False, allow_blank=True, default=""
+    )
+    budget_fee = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+    preferred_start_time = serializers.TimeField(required=False, allow_null=True, default=None)
+    preferred_end_time = serializers.TimeField(required=False, allow_null=True, default=None)
+
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
             raise serializers.ValidationError("An account with this email already exists.")
@@ -70,6 +107,10 @@ class ParentRegisterSerializer(serializers.Serializer):
             area=validated_data["area"],
             address_line=validated_data.get("address_line", ""),
             pincode=validated_data.get("pincode", ""),
+            student_class=validated_data.get("student_class", ""),
+            budget_fee=validated_data.get("budget_fee", ""),
+            preferred_start_time=validated_data.get("preferred_start_time"),
+            preferred_end_time=validated_data.get("preferred_end_time"),
         )
         return profile
 
@@ -80,8 +121,14 @@ class TutorRegisterSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, min_length=8)
 
     full_name = serializers.CharField(max_length=150)
-    subjects = serializers.PrimaryKeyRelatedField(
-        queryset=Subject.objects.filter(is_active=True), many=True
+    # Free text, typed by the tutor (e.g. "Maths, Physics") rather than
+    # picked from a fixed catalog list -- see _get_or_create_subject
+    # above for how each name is resolved to (or added to) the shared
+    # Subject catalog.
+    subjects = serializers.ListField(
+        child=serializers.CharField(max_length=100, allow_blank=False, trim_whitespace=True),
+        allow_empty=False,
+        error_messages={"empty": "Enter at least one subject you teach."},
     )
     preferred_areas = serializers.PrimaryKeyRelatedField(
         queryset=Area.objects.filter(is_active=True), many=True,
@@ -104,9 +151,20 @@ class TutorRegisterSerializer(serializers.Serializer):
         return value
 
     def validate_subjects(self, value):
-        if not value:
-            raise serializers.ValidationError("Select at least one subject you teach.")
-        return value
+        # Dedupe case-insensitively (e.g. "Maths" and "maths" typed as
+        # two list entries) while preserving the tutor's original
+        # casing for whichever occurrence comes first.
+        seen = set()
+        cleaned = []
+        for name in value:
+            name = name.strip()
+            key = name.lower()
+            if name and key not in seen:
+                seen.add(key)
+                cleaned.append(name)
+        if not cleaned:
+            raise serializers.ValidationError("Enter at least one subject you teach.")
+        return cleaned
 
     def validate_preferred_areas(self, value):
         if not value:
@@ -115,7 +173,8 @@ class TutorRegisterSerializer(serializers.Serializer):
 
     @transaction.atomic
     def create(self, validated_data):
-        subjects = validated_data.pop("subjects")
+        subject_names = validated_data.pop("subjects")
+        subjects = [_get_or_create_subject(name) for name in subject_names]
         preferred_areas = validated_data.pop("preferred_areas")
 
         user = User.objects.create_user(
