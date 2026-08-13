@@ -15,13 +15,22 @@ regardless of environment.
 """
 
 from django.test import TestCase
+from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.accounts.models import User
 from apps.catalog.models import Academy, Area, City, Subject
 from apps.profiles.models import ParentProfile, TutorProfile
 
-from .models import StudentRequest
+from .models import Assignment, StudentRequest
 from .services import suggest_tutors_for_request
+
+
+def _auth_client(user):
+    client = APIClient()
+    token = RefreshToken.for_user(user).access_token
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    return client
 
 
 class MatchingModeBranchingTests(TestCase):
@@ -137,3 +146,82 @@ class MatchingModeBranchingTests(TestCase):
         results, same_area_ids, mode = suggest_tutors_for_request(request, use_ai_ranking=False)
         self.assertEqual(mode, StudentRequest.TeachingModePreference.ACADEMY)
         self.assertIn(self.academy, results)
+
+
+class MyAssignmentsViewTests(TestCase):
+    """
+    GET /api/matching/assignments/me/ -- the tutor-facing "which
+    students has Tutoro matched me with" endpoint added to power the
+    frontend dashboard (there was previously no way for a logged-in
+    tutor to read their own assignments at all).
+    """
+
+    _phone_counter = 9200000000
+
+    def _next_phone(self):
+        MyAssignmentsViewTests._phone_counter += 1
+        return str(MyAssignmentsViewTests._phone_counter)
+
+    def setUp(self):
+        city = City.objects.create(name="Hyderabad", state="Telangana", is_active=True)
+        self.area = Area.objects.create(name="Kukatpally", slug="kukatpally", city=city, is_active=True)
+        self.subject = Subject.objects.create(name="Maths", slug="maths")
+
+        parent_user = User.objects.create_user(
+            email="parent@test.com", phone_number=self._next_phone(), password="testpass123",
+            role=User.Role.PARENT,
+        )
+        self.parent = ParentProfile.objects.create(user=parent_user, full_name="Parent", area=self.area)
+
+        self.tutor_user = User.objects.create_user(
+            email="tutor@test.com", phone_number=self._next_phone(), password="testpass123",
+            role=User.Role.TUTOR,
+        )
+        self.tutor = TutorProfile.objects.create(
+            user=self.tutor_user, full_name="Tutor One", teaching_mode="HOME",
+        )
+
+        self.other_tutor_user = User.objects.create_user(
+            email="other-tutor@test.com", phone_number=self._next_phone(), password="testpass123",
+            role=User.Role.TUTOR,
+        )
+        self.other_tutor = TutorProfile.objects.create(
+            user=self.other_tutor_user, full_name="Tutor Two", teaching_mode="HOME",
+        )
+
+        self.request = StudentRequest.objects.create(
+            parent=self.parent, student_name="Ananya Reddy", student_class="C6_8",
+            area=self.area, consent_given=True,
+        )
+        self.request.subjects.add(self.subject)
+
+        self.my_assignment = Assignment.objects.create(
+            student_request=self.request, tutor=self.tutor, matched_by=parent_user,
+            status=Assignment.Status.DEMO_SCHEDULED,
+        )
+        # Belongs to a different tutor -- must never show up for self.tutor.
+        Assignment.objects.create(
+            student_request=self.request, tutor=self.other_tutor, matched_by=parent_user,
+            status=Assignment.Status.PROPOSED,
+        )
+
+    def test_tutor_sees_only_their_own_assignments(self):
+        client = _auth_client(self.tutor_user)
+        response = client.get("/api/matching/assignments/me/")
+        self.assertEqual(response.status_code, 200)
+        results = response.data.get("results", response.data)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], str(self.my_assignment.id))
+        self.assertEqual(results[0]["student_name"], "Ananya Reddy")
+        self.assertEqual(results[0]["area_name"], "Kukatpally")
+        self.assertEqual(results[0]["subjects"], ["Maths"])
+        self.assertEqual(results[0]["status"], Assignment.Status.DEMO_SCHEDULED)
+
+    def test_parent_is_forbidden(self):
+        client = _auth_client(self.parent.user)
+        response = client.get("/api/matching/assignments/me/")
+        self.assertEqual(response.status_code, 403)
+
+    def test_anonymous_is_unauthorized(self):
+        response = APIClient().get("/api/matching/assignments/me/")
+        self.assertEqual(response.status_code, 401)
