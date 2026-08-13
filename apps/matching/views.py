@@ -7,10 +7,10 @@ Three permission tiers in this one file, which is the whole point of
   - Nobody except staff can see the suggestion algorithm or create
     an Assignment — matching is explicitly staff-mediated, not
     something a tutor or parent can trigger themselves
-  - Tutors never appear in this file at all — they interact via their
-    own profile (apps.profiles) and, later, via Assignment/DemoClass
-    read-only views (not needed yet at MVP volume; admin handles
-    coordination directly over WhatsApp per your existing workflow)
+  - Tutors get exactly one read-only view here, MyAssignmentsView --
+    "which students has Tutoro matched me with". They still can't see
+    the suggestion algorithm or create/edit an Assignment themselves;
+    this only surfaces matches an admin already made.
 """
 
 import math
@@ -21,7 +21,7 @@ from rest_framework import generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.permissions import IsAdminRole, IsParentRole
+from apps.accounts.permissions import IsAdminRole, IsParentRole, IsTutorRole
 from apps.catalog.models import Area
 from apps.leads.models import ParentLead
 
@@ -29,6 +29,7 @@ from .models import Assignment, StudentRequest
 from .serializers import (
     AcademySuggestionSerializer,
     AssignmentSerializer,
+    MyAssignmentSerializer,
     StudentRequestSerializer,
     TutorSuggestionSerializer,
 )
@@ -106,6 +107,27 @@ class AssignmentListCreateView(generics.ListCreateAPIView):
     serializer_class = AssignmentSerializer
     permission_classes = [IsAdminRole]
     queryset = Assignment.objects.select_related("student_request", "tutor", "matched_by").order_by("-created_at")
+
+
+class MyAssignmentsView(generics.ListAPIView):
+    """
+    GET /api/matching/assignments/me/
+    Tutor-only, read-only. "Which students has Tutoro matched me with"
+    -- the frontend's tutor dashboard. Assignment creation/status
+    changes stay admin-mediated (AssignmentListCreateView); a tutor
+    only ever reads their own rows here.
+    """
+
+    serializer_class = MyAssignmentSerializer
+    permission_classes = [IsTutorRole]
+
+    def get_queryset(self):
+        return (
+            Assignment.objects.select_related("student_request", "student_request__area", "tutor")
+            .prefetch_related("student_request__subjects")
+            .filter(tutor__user=self.request.user)
+            .order_by("-created_at")
+        )
 
 
 def _student_display_name(full_name):
