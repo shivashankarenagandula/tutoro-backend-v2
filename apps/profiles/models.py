@@ -15,7 +15,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from apps.accounts.models import User
-from apps.catalog.models import Area, Subject
+from apps.catalog.models import Area, StudentClass, Subject
 from apps.profiles.validators import (
     validate_document_extension,
     validate_document_size,
@@ -42,6 +42,23 @@ class ParentProfile(models.Model):
     address_line = models.CharField(max_length=255, blank=True)
     area = models.ForeignKey(Area, on_delete=models.SET_NULL, null=True, related_name="parents")
     pincode = models.CharField(max_length=10, blank=True)
+
+    # Captured at signup so a parent doesn't have to fill this in twice
+    # (once on the account, once on their first StudentRequest) --
+    # StudentRequest still has its own per-request student_class /
+    # preferred_timing / budget for when a parent has more than one
+    # child or changes their mind later; these are just sensible
+    # defaults carried over from what they told us at registration.
+    student_class = models.CharField(
+        max_length=15, choices=StudentClass.choices, blank=True,
+        help_text="Grade/level the child needs tutoring for, as given at signup.",
+    )
+    budget_fee = models.CharField(
+        max_length=100, blank=True,
+        help_text="Affordable fee the parent mentioned at signup, free text (e.g. '600/hr').",
+    )
+    preferred_start_time = models.TimeField(null=True, blank=True)
+    preferred_end_time = models.TimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
