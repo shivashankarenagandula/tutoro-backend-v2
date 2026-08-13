@@ -110,6 +110,33 @@ class AssignmentSerializer(serializers.ModelSerializer):
         return assignment
 
 
+class MyAssignmentSerializer(serializers.ModelSerializer):
+    """
+    Read-only, tutor-facing shape for "which students has Tutoro
+    matched me with". Deliberately not the same as AssignmentSerializer
+    (the admin create/edit shape) -- a tutor never edits an Assignment
+    directly (matching stays staff-mediated, see matching.views), and
+    needs request-side context (area, class, subjects) that the admin
+    serializer doesn't bother surfacing.
+    """
+
+    student_name = serializers.CharField(source="student_request.student_name", read_only=True)
+    student_class = serializers.CharField(source="student_request.get_student_class_display", read_only=True)
+    area_name = serializers.CharField(source="student_request.area.name", read_only=True)
+    subjects = serializers.SerializerMethodField()
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+
+    class Meta:
+        model = Assignment
+        fields = [
+            "id", "student_name", "student_class", "area_name", "subjects",
+            "status", "status_display", "video_class_link", "started_at", "created_at",
+        ]
+
+    def get_subjects(self, obj):
+        return list(obj.student_request.subjects.values_list("name", flat=True))
+
+
 class DemoClassSerializer(serializers.ModelSerializer):
     class Meta:
         model = DemoClass
