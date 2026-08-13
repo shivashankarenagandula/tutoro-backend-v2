@@ -37,3 +37,32 @@ services:
         sync: false   # set manually -- your admin login password
       - key: GEMINI_API_KEY
         sync: false   # set manually -- used by apps.ai for smart matching, bio generation, etc.
+      # ---------------------------------------------------------------
+      # EMAIL (SMTP) -- required for password-reset codes and email
+      # verification OTPs to actually send. Without these, EMAIL_HOST_USER
+      # is empty, send_mail() raises, and the API silently swallows the
+      # failure (by design, to avoid leaking which emails are registered)
+      # -- so signup/login/reset all still "succeed" but no email ever
+      # arrives. This is almost certainly why reset codes aren't showing
+      # up: these were never set.
+      #
+      # For Gmail: use an App Password (myaccount.google.com/apppasswords),
+      # NOT your normal Gmail password -- Gmail rejects SMTP login with
+      # the account password directly. Any other SMTP provider (SendGrid,
+      # Mailgun, Amazon SES, your domain host, etc.) works too -- just
+      # change EMAIL_HOST/EMAIL_PORT to match.
+      # ---------------------------------------------------------------
+      - key: EMAIL_HOST
+        value: "smtp.gmail.com"
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_USE_TLS
+        value: "True"
+      - key: EMAIL_HOST_USER
+        sync: false   # set manually -- the sending mailbox address, e.g. yourteam@gmail.com
+      - key: EMAIL_HOST_PASSWORD
+        sync: false   # set manually -- Gmail App Password (or your SMTP provider's password/API key)
+      - key: DEFAULT_FROM_EMAIL
+        sync: false   # optional -- defaults to EMAIL_HOST_USER if unset
+      - key: ADMIN_NOTIFICATION_EMAIL
+        sync: false   # optional -- defaults to EMAIL_HOST_USER if unset
