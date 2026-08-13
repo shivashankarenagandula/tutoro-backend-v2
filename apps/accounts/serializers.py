@@ -144,6 +144,17 @@ class TutorRegisterSerializer(serializers.Serializer):
     )
     online_fee = serializers.DecimalField(max_digits=8, decimal_places=2, required=False, allow_null=True)
     home_visit_fee = serializers.DecimalField(max_digits=8, decimal_places=2, required=False, allow_null=True)
+    # The signup form's "Expected fee" field is a single generic input --
+    # it doesn't ask the tutor to split it by teaching mode at signup
+    # time (that split happens later on the full profile). Accepting it
+    # here and applying it to whichever of online_fee/home_visit_fee
+    # wasn't explicitly set (see create() below) means a tutor who fills
+    # in this one field actually gets it saved, instead of it being
+    # silently dropped as an unrecognized key.
+    expected_fee = serializers.DecimalField(
+        max_digits=8, decimal_places=2, required=False, allow_null=True,
+        help_text="Generic fee from the signup form; backfills online_fee/home_visit_fee if those aren't set separately.",
+    )
 
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
@@ -177,6 +188,20 @@ class TutorRegisterSerializer(serializers.Serializer):
         subjects = [_get_or_create_subject(name) for name in subject_names]
         preferred_areas = validated_data.pop("preferred_areas")
 
+        # Backfill: if the tutor only filled in the single generic
+        # "expected fee" field (the current signup form), apply it to
+        # whichever of online_fee/home_visit_fee wasn't given explicitly,
+        # so simple signups still end up with a usable fee on the
+        # profile instead of losing it entirely.
+        expected_fee = validated_data.pop("expected_fee", None)
+        online_fee = validated_data.get("online_fee")
+        home_visit_fee = validated_data.get("home_visit_fee")
+        if expected_fee is not None:
+            if online_fee is None:
+                online_fee = expected_fee
+            if home_visit_fee is None:
+                home_visit_fee = expected_fee
+
         user = User.objects.create_user(
             email=validated_data["email"],
             phone_number=validated_data["phone_number"],
@@ -190,8 +215,8 @@ class TutorRegisterSerializer(serializers.Serializer):
             qualification=validated_data.get("qualification", ""),
             teaching_mode=validated_data.get("teaching_mode", TutorProfile.TeachingMode.HOME),
             fee_type=validated_data.get("fee_type", TutorProfile.FeeType.PER_HOUR),
-            online_fee=validated_data.get("online_fee"),
-            home_visit_fee=validated_data.get("home_visit_fee"),
+            online_fee=online_fee,
+            home_visit_fee=home_visit_fee,
             # Every tutor starts PENDING — verification is a separate,
             # deliberate admin action, never automatic on signup.
             verification_status=TutorProfile.VerificationStatus.PENDING,
