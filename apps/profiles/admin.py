@@ -22,6 +22,7 @@ class TutorProfileAdmin(admin.ModelAdmin):
 
 @admin.register(ParentProfile)
 class ParentProfileAdmin(admin.ModelAdmin):
-    list_display = ["full_name", "area", "alternate_phone"]
+    list_display = ["full_name", "area", "alternate_phone", "student_class", "budget_fee"]
+    list_filter = ["student_class"]
     search_fields = ["full_name", "user__email", "user__phone_number"]
     autocomplete_fields = ["user", "area"]
