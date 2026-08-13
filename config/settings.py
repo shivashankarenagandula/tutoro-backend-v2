@@ -275,6 +275,11 @@ REST_FRAMEWORK = {
         # 6-digit space.
         'otp_request': '5/hour',
         'otp_verify': '15/hour',
+        # Password reset (see apps.accounts.views) -- same request-vs-
+        # verify asymmetry as OTP above, and IP-keyed since the caller
+        # may be logged out and have no account at all.
+        'password_reset_request': '5/hour',
+        'password_reset_confirm': '15/hour',
         # Phase 4 AI-layer scopes -- each hit here costs a real
         # Anthropic API call, so every AI-facing endpoint gets its own
         # scope rather than sharing the generic ones above.
