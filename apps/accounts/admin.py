@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
-from .models import EmailOTP, User
+from .models import EmailOTP, PasswordResetOTP, User
 
 
 @admin.register(User)
@@ -35,6 +35,22 @@ class EmailOTPAdmin(admin.ModelAdmin):
     verification isn't working, not to let anyone read or edit live
     codes from the admin.
     """
+
+    list_display = ["user", "is_used", "created_at", "expires_at"]
+    list_filter = ["is_used"]
+    search_fields = ["user__email"]
+    readonly_fields = ["id", "user", "code", "created_at", "expires_at", "is_used"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PasswordResetOTP)
+class PasswordResetOTPAdmin(admin.ModelAdmin):
+    """Read-only, same rationale as EmailOTPAdmin above."""
 
     list_display = ["user", "is_used", "created_at", "expires_at"]
     list_filter = ["is_used"]
