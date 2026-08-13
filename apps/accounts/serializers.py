@@ -19,6 +19,23 @@ from apps.profiles.models import ParentProfile, TutorProfile
 from .models import User
 
 
+class PasswordResetRequestSerializer(serializers.Serializer):
+    """
+    Deliberately has no validate_email existence check (unlike the
+    register serializers above) -- returning a different response for
+    "no account with that email" vs "code sent" is exactly how a
+    password-reset endpoint leaks which emails are registered. The
+    view always returns the same generic message regardless.
+    """
+    email = serializers.EmailField()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField(max_length=6)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+
+
 class ParentRegisterSerializer(serializers.Serializer):
     email = serializers.EmailField()
     phone_number = serializers.CharField(max_length=15)
